@@ -1,0 +1,255 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>KK Dashboard Viewer</title>
+  <style>
+    body { font-family: sans-serif; padding: 2em; max-width: 700px; margin: auto; }
+    input, button { padding: 0.5em; margin: 0.5em 0.5em 0.5em 0; }
+    .record, .missing { padding: 0.3em 0; border-bottom: 1px solid #ccc; }
+    .error { color: red; }
+    h2 { margin-top: 2em; }
+    .rank, .time { font-weight: bold; color: #0077cc; margin-left: 0.5em; }
+  </style>
+</head>
+<body>
+  <h1>KK Dashboard Viewer</h1>
+  <input type="text" id="pidInput" placeholder="Enter PID or full URL" />
+  <button onclick="fetchAll()">Fetch Records & Missing Maps</button>
+  <button onclick="loadTimes()">Load Times</button>
+  <button onclick="exportToSheets()">Export to Google Sheets</button>
+  <div id="status"></div>
+  <h2>Finished Maps</h2>
+  <div id="recordsList"></div>
+  <h2>Missing Maps</h2>
+  <div id="missingList"></div>
+
+  <script>
+    const GAS_URL = "https://script.google.com/macros/s/AKfycbyQsuyDAC-hwbrFuuOWu4uL8FNl1ryKgMuGFeqCoXZvtweCSlX_nj1zyfS4sGeERbGK/exec";
+    let allFinishedMaps = [];
+    let currentPid = '';
+
+    function cleanName(name) {
+      return name.replace(/\$[0-9a-zA-Z]{1,3}/g, '').trim();
+    }
+
+    function getSavedPID() {
+      const saved = localStorage.getItem("kk_pid");
+      if (saved) document.getElementById("pidInput").value = saved;
+    }
+
+    window.onload = getSavedPID;
+
+    async function fetchAll() {
+      const input = document.getElementById('pidInput').value.trim();
+      const status = document.getElementById('status');
+      const recordsList = document.getElementById('recordsList');
+      const missingList = document.getElementById('missingList');
+      status.textContent = '';
+      recordsList.innerHTML = '';
+      missingList.innerHTML = '';
+      allFinishedMaps = [];
+
+      let pid, edition = '0';
+      const pidMatch = input.match(/pid=(\d+)/);
+      const editionMatch = input.match(/edition=(\d+)/);
+
+      if (pidMatch) {
+        pid = pidMatch[1];
+        edition = editionMatch ? editionMatch[1] : '0';
+      } else if (/^\d+$/.test(input)) {
+        pid = input;
+        edition = prompt('Enter edition (e.g., 0 for all editions):', '0') || '0';
+      } else {
+        status.textContent = '❗ Please enter a PID or valid player URL.';
+        status.className = 'error';
+        return;
+      }
+
+      currentPid = pid;
+      localStorage.setItem("kk_pid", pid);
+
+      let finishedCount = 0;
+      let missingCount = 0;
+
+      try {
+        const rawUrl = `https://kackiestkacky.com/hunting/editions/edition_history.php?pid=${pid}&edition=${edition}`;
+        const proxyUrl = `https://api.allorigins.win/get?url=${encodeURIComponent(rawUrl)}`;
+        const response = await fetch(proxyUrl);
+        const json = await response.json();
+        const data = JSON.parse(json.contents);
+
+        const allFinished = [];
+
+        data.forEach(entry => {
+          if (entry.FinishedMaps && entry.RecordsMaps) {
+            const [mapNamesRaw, mapUIDsRaw] = entry.FinishedMaps.split(';');
+            const names = mapNamesRaw.split(',');
+            const uids = mapUIDsRaw ? mapUIDsRaw.split(',') : [];
+            const ranks = entry.RecordsMaps.split(',');
+            names.forEach((name, i) => {
+              const clean = cleanName(name);
+              const uid = uids[i] || '';
+              const rank = ranks[i] || '?';
+              if (clean.length > 1) {
+                allFinished.push({ name: clean, rank, uid, time: '?' });
+              }
+            });
+          }
+        });
+
+        allFinishedMaps = allFinished;
+        finishedCount = allFinished.length;
+
+        allFinished.forEach(({ name, rank, uid }) => {
+          const div = document.createElement('div');
+          div.className = 'record';
+          const link = uid
+            ? `<a href="https://kackiestkacky.com/hunting/editions/maps.php?uid=${uid}" target="_blank">${name}</a>`
+            : name;
+          div.innerHTML = `${link} <span class="rank">#${rank}</span> <span class="time">[load]</span>`;
+          recordsList.appendChild(div);
+        });
+      } catch (e) {
+        console.error('Record fetch failed:', e);
+        status.textContent = '❌ Failed to fetch map records.';
+        status.className = 'error';
+        return;
+      }
+
+      try {
+        const missingUrl = `https://api.allorigins.win/get?url=${encodeURIComponent(
+          `https://kackiestkacky.com/hunting/editions/missing_maps.php?pid=${pid}&edition=${edition}`
+        )}`;
+        const missingResp = await fetch(missingUrl);
+        const missingJson = await missingResp.json();
+        const parsed = JSON.parse(missingJson.contents);
+
+        const unfinishedRaw = parsed[0]?.UnfinishedMaps || '';
+        const [namePart, uidPart] = unfinishedRaw.split(';');
+        const nameList = namePart.split(',');
+        const uidList = uidPart ? uidPart.split(',') : [];
+
+        const missingMaps = nameList
+          .map((raw, i) => ({
+            name: cleanName(raw),
+            uid: uidList[i] || ''
+          }))
+          .filter(map => map.name && map.name.length > 1);
+
+        missingCount = missingMaps.length;
+
+        if (missingMaps.length === 0) {
+          const none = document.createElement('div');
+          none.textContent = '🎉 No missing maps!';
+          missingList.appendChild(none);
+        } else {
+          missingMaps.forEach(({ name, uid }) => {
+            const div = document.createElement('div');
+            div.className = 'missing';
+            const link = uid
+              ? `<a href="https://kackiestkacky.com/hunting/editions/maps.php?uid=${uid}" target="_blank">${name}</a>`
+              : name;
+            div.innerHTML = link;
+            missingList.appendChild(div);
+          });
+        }
+
+        status.textContent = `✅ Found ${finishedCount} finished map(s), ${missingCount} missing.`;
+      } catch (e) {
+        console.warn('Missing maps fetch failed:', e);
+        status.textContent += ' ⚠️ Missing maps could not be loaded.';
+      }
+    }
+
+    async function loadTimes() {
+      const status = document.getElementById('status');
+      const rows = document.querySelectorAll('#recordsList .record');
+      status.textContent = '⏱ Fetching times...';
+
+      for (let i = 0; i < allFinishedMaps.length; i++) {
+        const { uid } = allFinishedMaps[i];
+        if (!uid) continue;
+
+        try {
+          const url = `https://kackiestkacky.com/hunting/editions/maps.php?uid=${uid}&raw=1`;
+          const proxyUrl = `https://api.allorigins.win/get?url=${encodeURIComponent(url)}`;
+          const resp = await fetch(proxyUrl);
+          const html = (await resp.json()).contents;
+
+          const allRowMatches = [...html.matchAll(/<tr>(.*?)<\/tr>/gs)];
+          let found = false;
+
+          for (const rowMatch of allRowMatches) {
+            const row = rowMatch[0];
+            const hrefMatch = row.match(/href="[^"]*pid=(\d+)/);
+            if (!hrefMatch) continue;
+            const matchedPid = hrefMatch[1];
+
+            if (matchedPid === currentPid) {
+              const tds = [...row.matchAll(/<td[^>]*>(.*?)<\/td>/g)].map(m => m[1].trim());
+              const rawTime = tds[2] || "0:00.000";
+              const [minutes, seconds] = rawTime.split(":");
+              const formattedTime = minutes === "00" ? parseFloat(seconds).toString() : rawTime;
+
+              allFinishedMaps[i].time = formattedTime;
+              rows[i].querySelector('.time').textContent = `⏱ ${formattedTime}`;
+              found = true;
+              break;
+            }
+          }
+
+          if (!found) {
+            allFinishedMaps[i].time = '?';
+            rows[i].querySelector('.time').textContent = `⏱ -`;
+          }
+        } catch (err) {
+          console.warn('Time fetch failed for map', uid, err);
+        }
+
+        await new Promise(r => setTimeout(r, 500)); // polite delay
+      }
+
+      status.textContent = '✅ Times updated.';
+    }
+
+    async function exportToSheets() {
+      const status = document.getElementById('status');
+      if (allFinishedMaps.length === 0) {
+        alert("You must load maps first.");
+        return;
+      }
+
+      let sheetId = localStorage.getItem('kk_sheet_id');
+      if (!sheetId) {
+        sheetId = prompt("Enter your Google Sheet ID:");
+        if (!sheetId) return;
+        localStorage.setItem("kk_sheet_id", sheetId);
+      }
+
+      const textBlock = allFinishedMaps.map(m =>
+        `${m.name}\t${m.time || '?'}\t${m.rank}`
+      ).join("\n");
+
+      const payload = {
+        map_records: textBlock,
+        sheet_id: sheetId
+      };
+
+      try {
+        const res = await fetch(GAS_URL, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload)
+        });
+        const txt = await res.text();
+        status.textContent = `📤 Upload status: ${txt}`;
+      } catch (err) {
+        console.error(err);
+        status.textContent = '❌ Failed to upload to Google Sheets.';
+      }
+    }
+  </script>
+</body>
+</html>
