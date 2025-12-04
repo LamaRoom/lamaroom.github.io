@@ -208,7 +208,7 @@
           console.warn('Time fetch failed for map', uid, err);
         }
 
-        await new Promise(r => setTimeout(r, 500)); // polite delay
+        // await new Promise(r => setTimeout(r, 500)); // polite delay
       }
 
       status.textContent = '✅ Times updated.';
