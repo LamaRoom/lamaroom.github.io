@@ -3,23 +3,40 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>KK Dashboard Viewer</title>
+  <title>KK Dashboard Viewer (Fast Mode)</title>
   <style>
-    body { font-family: sans-serif; padding: 2em; max-width: 700px; margin: auto; }
+    body { font-family: sans-serif; padding: 2em; max-width: 900px; margin: auto; }
     input, button { padding: 0.5em; margin: 0.5em 0.5em 0.5em 0; }
-    .record, .missing { padding: 0.3em 0; border-bottom: 1px solid #ccc; }
+    .record, .missing { padding: 0.3em 0; border-bottom: 1px solid #eee; display:flex; align-items:center; justify-content:space-between; gap:1rem; }
+    .record .left { display:flex; align-items:center; gap:0.5rem; }
     .error { color: red; }
     h2 { margin-top: 2em; }
     .rank, .time { font-weight: bold; color: #0077cc; margin-left: 0.5em; }
+    #progressBarWrap { width:100%; background:#f0f0f0; height:12px; border-radius:6px; overflow:hidden; margin-top:8px; display:none; }
+    #progressBar { height:100%; width:0%; transition:width .2s linear; }
+    #status { margin-top:0.5em; min-height:1.2em; }
+    a { color: inherit; text-decoration:underline; }
+    .small { font-size: 0.9rem; color: #666; }
   </style>
 </head>
 <body>
-  <h1>KK Dashboard Viewer</h1>
+  <h1>KK Dashboard Viewer (Fast Mode)</h1>
   <input type="text" id="pidInput" placeholder="Enter PID or full URL" />
-  <button onclick="fetchAll()">Fetch Records & Missing Maps</button>
-  <button onclick="loadTimes()">Load Times</button>
-  <button onclick="exportToSheets()">Export to Google Sheets</button>
+  <button id="fetchBtn">Fetch Records & Missing Maps</button>
+  <button id="loadBtn">Load Times (fast)</button>
+  <button id="exportBtn">Export to Google Sheets</button>
+  <label class="small">Concurrency:
+    <select id="concurrency">
+      <option value="3">3</option>
+      <option value="5" selected>5</option>
+      <option value="8">8</option>
+      <option value="12">12</option>
+    </select>
+  </label>
+
   <div id="status"></div>
+  <div id="progressBarWrap"><div id="progressBar"></div></div>
+
   <h2>Finished Maps</h2>
   <div id="recordsList"></div>
   <h2>Missing Maps</h2>
@@ -41,6 +58,23 @@
 
     window.onload = getSavedPID;
 
+    // Helper: update progress UI
+    function updateProgress(done, total) {
+      const wrap = document.getElementById('progressBarWrap');
+      const bar = document.getElementById('progressBar');
+      const status = document.getElementById('status');
+      if (total === 0) {
+        wrap.style.display = 'none';
+        bar.style.width = '0%';
+        status.textContent = '';
+        return;
+      }
+      const pct = Math.round((done / total) * 100);
+      wrap.style.display = 'block';
+      bar.style.width = pct + '%';
+      status.textContent = `⏱ Fetching times: ${done}/${total} (${pct}%)`;
+    }
+
     async function fetchAll() {
       const input = document.getElementById('pidInput').value.trim();
       const status = document.getElementById('status');
@@ -50,6 +84,7 @@
       recordsList.innerHTML = '';
       missingList.innerHTML = '';
       allFinishedMaps = [];
+      updateProgress(0,0);
 
       let pid, edition = '0';
       const pidMatch = input.match(/pid=(\d+)/);
@@ -69,9 +104,6 @@
 
       currentPid = pid;
       localStorage.setItem("kk_pid", pid);
-
-      let finishedCount = 0;
-      let missingCount = 0;
 
       try {
         const rawUrl = `https://kackiestkacky.com/hunting/editions/edition_history.php?pid=${pid}&edition=${edition}`;
@@ -100,118 +132,175 @@
         });
 
         allFinishedMaps = allFinished;
-        finishedCount = allFinished.length;
+        const finishedCount = allFinished.length;
 
-        allFinished.forEach(({ name, rank, uid }) => {
+        // render list and attach data-idx so mapping is explicit and stable
+        allFinishedMaps.forEach((m, idx) => {
           const div = document.createElement('div');
           div.className = 'record';
-          const link = uid
-            ? `<a href="https://kackiestkacky.com/hunting/editions/maps.php?uid=${uid}" target="_blank">${name}</a>`
-            : name;
-          div.innerHTML = `${link} <span class="rank">#${rank}</span> <span class="time">[load]</span>`;
+          div.dataset.idx = String(idx);
+          const left = document.createElement('div');
+          left.className = 'left';
+          const link = m.uid
+            ? `<a href="https://kackiestkacky.com/hunting/editions/maps.php?uid=${m.uid}" target="_blank" rel="noopener">${m.name}</a>`
+            : m.name;
+          left.innerHTML = link + ` <span class="rank">#${m.rank}</span>`;
+          const right = document.createElement('div');
+          right.innerHTML = `<span class="time">[load]</span>`;
+          div.appendChild(left);
+          div.appendChild(right);
           recordsList.appendChild(div);
         });
+
+        // fetch missing maps
+        try {
+          const missingUrl = `https://api.allorigins.win/get?url=${encodeURIComponent(
+            `https://kackiestkacky.com/hunting/editions/missing_maps.php?pid=${pid}&edition=${edition}`
+          )}`;
+          const missingResp = await fetch(missingUrl);
+          const missingJson = await missingResp.json();
+          const parsed = JSON.parse(missingJson.contents);
+
+          const unfinishedRaw = parsed[0]?.UnfinishedMaps || '';
+          const [namePart, uidPart] = unfinishedRaw.split(';');
+          const nameList = namePart ? namePart.split(',') : [];
+          const uidList = uidPart ? uidPart.split(',') : [];
+
+          const missingMaps = nameList
+            .map((raw, i) => ({
+              name: cleanName(raw),
+              uid: uidList[i] || ''
+            }))
+            .filter(map => map.name && map.name.length > 1);
+
+          if (missingMaps.length === 0) {
+            const none = document.createElement('div');
+            none.textContent = '🎉 No missing maps!';
+            missingList.appendChild(none);
+          } else {
+            missingMaps.forEach(({ name, uid }) => {
+              const div = document.createElement('div');
+              div.className = 'missing';
+              const link = uid
+                ? `<a href="https://kackiestkacky.com/hunting/editions/maps.php?uid=${uid}" target="_blank" rel="noopener">${name}</a>`
+                : name;
+              div.innerHTML = link;
+              missingList.appendChild(div);
+            });
+          }
+
+          status.textContent = `✅ Found ${finishedCount} finished map(s), ${missingMaps.length} missing.`;
+        } catch (eMissing) {
+          console.warn('Missing maps fetch failed:', eMissing);
+          status.textContent = `✅ Found ${finishedCount} finished map(s). ⚠️ Missing maps could not be loaded.`;
+        }
+
       } catch (e) {
         console.error('Record fetch failed:', e);
         status.textContent = '❌ Failed to fetch map records.';
         status.className = 'error';
-        return;
-      }
-
-      try {
-        const missingUrl = `https://api.allorigins.win/get?url=${encodeURIComponent(
-          `https://kackiestkacky.com/hunting/editions/missing_maps.php?pid=${pid}&edition=${edition}`
-        )}`;
-        const missingResp = await fetch(missingUrl);
-        const missingJson = await missingResp.json();
-        const parsed = JSON.parse(missingJson.contents);
-
-        const unfinishedRaw = parsed[0]?.UnfinishedMaps || '';
-        const [namePart, uidPart] = unfinishedRaw.split(';');
-        const nameList = namePart.split(',');
-        const uidList = uidPart ? uidPart.split(',') : [];
-
-        const missingMaps = nameList
-          .map((raw, i) => ({
-            name: cleanName(raw),
-            uid: uidList[i] || ''
-          }))
-          .filter(map => map.name && map.name.length > 1);
-
-        missingCount = missingMaps.length;
-
-        if (missingMaps.length === 0) {
-          const none = document.createElement('div');
-          none.textContent = '🎉 No missing maps!';
-          missingList.appendChild(none);
-        } else {
-          missingMaps.forEach(({ name, uid }) => {
-            const div = document.createElement('div');
-            div.className = 'missing';
-            const link = uid
-              ? `<a href="https://kackiestkacky.com/hunting/editions/maps.php?uid=${uid}" target="_blank">${name}</a>`
-              : name;
-            div.innerHTML = link;
-            missingList.appendChild(div);
-          });
-        }
-
-        status.textContent = `✅ Found ${finishedCount} finished map(s), ${missingCount} missing.`;
-      } catch (e) {
-        console.warn('Missing maps fetch failed:', e);
-        status.textContent += ' ⚠️ Missing maps could not be loaded.';
       }
     }
 
+    // Throttled parallel loader
     async function loadTimes() {
       const status = document.getElementById('status');
-      const rows = document.querySelectorAll('#recordsList .record');
-      status.textContent = '⏱ Fetching times...';
-
-      for (let i = 0; i < allFinishedMaps.length; i++) {
-        const { uid } = allFinishedMaps[i];
-        if (!uid) continue;
-
-        try {
-          const url = `https://kackiestkacky.com/hunting/editions/maps.php?uid=${uid}&raw=1`;
-          const proxyUrl = `https://api.allorigins.win/get?url=${encodeURIComponent(url)}`;
-          const resp = await fetch(proxyUrl);
-          const html = (await resp.json()).contents;
-
-          const allRowMatches = [...html.matchAll(/<tr>(.*?)<\/tr>/gs)];
-          let found = false;
-
-          for (const rowMatch of allRowMatches) {
-            const row = rowMatch[0];
-            const hrefMatch = row.match(/href="[^"]*pid=(\d+)/);
-            if (!hrefMatch) continue;
-            const matchedPid = hrefMatch[1];
-
-            if (matchedPid === currentPid) {
-              const tds = [...row.matchAll(/<td[^>]*>(.*?)<\/td>/g)].map(m => m[1].trim());
-              const rawTime = tds[2] || "0:00.000";
-              const [minutes, seconds] = rawTime.split(":");
-              const formattedTime = minutes === "00" ? parseFloat(seconds).toString() : rawTime;
-
-              allFinishedMaps[i].time = formattedTime;
-              rows[i].querySelector('.time').textContent = `⏱ ${formattedTime}`;
-              found = true;
-              break;
-            }
-          }
-
-          if (!found) {
-            allFinishedMaps[i].time = '?';
-            rows[i].querySelector('.time').textContent = `⏱ -`;
-          }
-        } catch (err) {
-          console.warn('Time fetch failed for map', uid, err);
-        }
-
-        // await new Promise(r => setTimeout(r, 500)); // polite delay
+      const concurrency = parseInt(document.getElementById('concurrency').value, 10) || 5;
+      const total = allFinishedMaps.length;
+      if (total === 0) {
+        alert("You must fetch maps first.");
+        return;
       }
 
-      status.textContent = '✅ Times updated.';
+      status.textContent = `⏱ Starting time fetch — concurrency: ${concurrency}`;
+      updateProgress(0, total);
+
+      // create a queue of indices to fetch (only indices that have a uid)
+      const queue = [];
+      for (let i = 0; i < allFinishedMaps.length; i++) {
+        if (allFinishedMaps[i].uid) queue.push(i);
+        else {
+          // mark as no-uid immediately
+          const row = document.querySelector(`#recordsList [data-idx="${i}"]`);
+          if (row) row.querySelector('.time').textContent = `⏱ -`;
+        }
+      }
+
+      let completed = 0;
+      let active = 0;
+      let errorCount = 0;
+
+      // worker function to process items from the queue
+      async function worker() {
+        while (true) {
+          let idx;
+          // pop an index atomically
+          idx = queue.shift();
+          if (typeof idx === 'undefined') return;
+          active++;
+          const map = allFinishedMaps[idx];
+          const row = document.querySelector(`#recordsList [data-idx="${idx}"]`);
+          try {
+            if (row) row.querySelector('.time').textContent = '⏳...';
+            console.log(`Fetching uid=${map.uid} (index ${idx})`);
+            const url = `https://kackiestkacky.com/hunting/editions/maps.php?uid=${map.uid}&raw=1`;
+            const proxyUrl = `https://api.allorigins.win/get?url=${encodeURIComponent(url)}`;
+            const resp = await fetch(proxyUrl);
+            if (!resp.ok) {
+              throw new Error('Non-OK response: ' + resp.status);
+            }
+            const html = (await resp.json()).contents;
+
+            const allRowMatches = [...html.matchAll(/<tr>(.*?)<\/tr>/gs)];
+            let found = false;
+
+            for (const rowMatch of allRowMatches) {
+              const rowHtml = rowMatch[0];
+              // more tolerant pid regex
+              const pidMatch = rowHtml.match(/pid=(\d+)/);
+              if (!pidMatch) continue;
+              if (pidMatch[1] === currentPid) {
+                const tds = [...rowHtml.matchAll(/<td[^>]*>(.*?)<\/td>/g)].map(m => m[1].trim());
+                const rawTime = tds[2] || "0:00.000";
+                const [minutes, seconds] = rawTime.split(":");
+                const formatted = (minutes === "00" || minutes === "0") ? parseFloat(seconds).toString() : rawTime;
+                map.time = formatted;
+                if (row) row.querySelector('.time').textContent = `⏱ ${formatted}`;
+                found = true;
+                break;
+              }
+            }
+
+            if (!found) {
+              map.time = '?';
+              if (row) row.querySelector('.time').textContent = `⏱ -`;
+            }
+          } catch (err) {
+            console.warn('Time fetch failed for map', map.uid, err);
+            errorCount++;
+            if (row) row.querySelector('.time').textContent = `⏱ !`;
+          } finally {
+            completed++;
+            active--;
+            updateProgress(completed, total);
+          }
+        }
+      }
+
+      // start worker pool
+      const workers = [];
+      const poolSize = Math.min(concurrency, queue.length || concurrency);
+      for (let i = 0; i < poolSize; i++) {
+        workers.push(worker());
+      }
+
+      // await all workers
+      await Promise.all(workers);
+
+      const statusMsg = `✅ Times updated. Completed: ${completed}/${total}` + (errorCount ? ` — errors: ${errorCount}` : '');
+      document.getElementById('status').textContent = statusMsg;
+      updateProgress(total, total);
+      console.log('All done', statusMsg);
     }
 
     async function exportToSheets() {
@@ -250,6 +339,16 @@
         status.textContent = '❌ Failed to upload to Google Sheets.';
       }
     }
+
+    // wire buttons
+    document.getElementById('fetchBtn').addEventListener('click', fetchAll);
+    document.getElementById('loadBtn').addEventListener('click', loadTimes);
+    document.getElementById('exportBtn').addEventListener('click', exportToSheets);
+
+    // also allow Enter in input to fetch
+    document.getElementById('pidInput').addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') fetchAll();
+    });
   </script>
 </body>
 </html>
