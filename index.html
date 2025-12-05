@@ -1,51 +1,48 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>KK Dashboard Viewer</title>
-  <style>
-    body { font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial; padding: 2em; max-width: 900px; margin: auto; color:#222; }
-    input, button, select { padding: 0.45em 0.6em; margin: 0.4em 0.4em 0.4em 0; font-size: 0.95rem; }
-    .record, .missing { padding: 0.45em 0; border-bottom: 1px solid #eee; display:flex; align-items:center; justify-content:space-between; gap:1rem; }
-    .record .left { display:flex; align-items:center; gap:0.6rem; flex:1; }
-    .error { color: #c00; }
-    h2 { margin-top: 1.6em; }
-    .rank, .time { font-weight: 600; color: #0077cc; margin-left: 0.5em; }
-    #progressBarWrap { width:100%; background:#f2f2f2; height:12px; border-radius:8px; overflow:hidden; margin-top:8px; display:none; }
-    #progressBar { height:100%; width:0%; transition:width .18s linear; background: linear-gradient(90deg,#6bb1ff,#2b7be6); }
-    #status { margin-top:0.5em; min-height:1.2em; color:#333; }
-    a { color: inherit; text-decoration:underline; }
-    .small { font-size: 0.88rem; color: #666; margin-left: 0.6rem; }
-    .btn-row { display:flex; gap:0.5rem; align-items:center; flex-wrap:wrap; margin-bottom: 0.6rem; }
-  </style>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>KK Dashboard Viewer — Final</title>
+<style>
+  :root { --accent:#0077cc; --muted:#666; --bg:#fff; --card:#f8f9fb; }
+  body { font-family: Inter, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial; padding: 20px; max-width: 980px; margin: auto; color:#111; background:var(--bg); }
+  h1 { margin: 0 0 12px 0; font-size: 1.35rem; }
+  .controls { display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-bottom:10px; }
+  input[type="text"] { padding:6px 8px; min-width:220px; border:1px solid #ddd; border-radius:6px; }
+  button { padding:8px 12px; border-radius:8px; border:1px solid #ddd; background:#fff; cursor:pointer; }
+  button.primary { background:var(--accent); color:#fff; border-color:transparent; }
+  .small { font-size:0.88rem; color:var(--muted); margin-left:6px; }
+  .row { display:flex; gap:12px; align-items:center; margin-bottom:6px; }
+  #status { margin:8px 0; min-height:1.2rem; color:var(--muted); }
+  #progressBarWrap { width:100%; background:#eee; height:12px; border-radius:8px; overflow:hidden; display:none; margin-bottom:8px; }
+  #progressBar { height:100%; width:0%; transition:width .2s linear; background:linear-gradient(90deg,#6bb1ff,#2b7be6); }
+  h2 { margin-top:18px; margin-bottom:8px; font-size:1.05rem; }
+  .record, .missing { padding:8px; border-radius:8px; background:#fff; border:1px solid #eee; display:flex; justify-content:space-between; gap:12px; align-items:center; margin-bottom:6px; }
+  .record .left { display:flex; gap:10px; align-items:center; }
+  .record a { color:var(--accent); text-decoration:none; }
+  .rank, .time { font-weight:600; color:var(--accent); margin-left:6px; }
+  .time.failed { color:#c0392b; }
+  .controls-right { margin-left:auto; display:flex; gap:8px; align-items:center; }
+  .muted { color:var(--muted); font-size:0.9rem; }
+  footer { margin-top:18px; color:var(--muted); font-size:0.85rem; }
+</style>
 </head>
 <body>
   <h1>KK Dashboard Viewer</h1>
 
-  <div class="btn-row">
-    <input id="pidInput" type="text" placeholder="Enter PID or full player URL" style="flex:1; min-width:260px" />
-    <button id="fetchBtn">Fetch Records & Missing Maps</button>
-    <button id="loadBtn">Load Times</button>
-    <button id="exportBtn">Export to Google Sheets (soon)</button>
+  <div class="controls">
+    <input id="pidInput" placeholder="Enter PID or full player URL" />
+    <button id="fetchBtn" class="primary">Fetch Records & Missing Maps</button>
+    <button id="loadBtn">Load Times (debug)</button>
+    <button id="exportBtn">Export to Google Sheets</button>
 
-    <label class="small">Concurrency:
-      <select id="concurrency" title="How many parallel requests to run">
-        <option value="3">3</option>
-        <option value="5" selected>5</option>
-        <option value="8">8</option>
-        <option value="12">12</option>
-      </select>
-    </label>
-
-    <label class="small">Retries:
-      <select id="retries" title="Retry attempts for failed requests">
-        <option value="1">1</option>
-        <option value="2">2</option>
-        <option value="3" selected>3</option>
-        <option value="4">4</option>
-      </select>
-    </label>
+    <div class="controls-right">
+      <label class="small">Cache:
+        <input id="cacheToggle" type="checkbox" style="margin-left:6px" />
+      </label>
+      <button id="clearCacheBtn" title="Clear local cache">Clear Cache</button>
+    </div>
   </div>
 
   <div id="status"></div>
@@ -57,408 +54,506 @@
   <h2>Missing Maps</h2>
   <div id="missingList"></div>
 
-  <script>
-    // === Config / constants ===
-    const GAS_URL = "https://script.google.com/macros/s/AKfycbyQsuyDAC-hwbrFuuOWu4uL8FNl1ryKgMuGFeqCoXZvtweCSlX_nj1zyfS4sGeERbGK/exec";
-    const PROXY_BASE = 'https://kacky-fetcher.lamaroom.workers.dev/?url='; // simple CORS proxy
-    const BASE_BACKOFF_MS = 250;
-    const BACKOFF_FACTOR = 1.6;
-    const JITTER_MS = 120;
+  <footer>
+    <div class="muted">Proxy: <code id="proxyLabel"></code> • Hidden concurrency & retry settings (8 workers, 3 retries)</div>
+  </footer>
 
-    // === State ===
-    let allFinishedMaps = [];   // {name, rank, uid, time}
-    let currentPid = '';
-    window.currentPlayerName = '';
+<script>
+/* ========= Configuration ========= */
+const PROXY_BASE = 'https://kacky-fetcher.lamaroom.workers.dev/?url=';
+const SHEET_GAS = 'https://script.google.com/macros/s/AKfycbzFcmEkxBsfPFiPZQxF5Mh0c3GjMYHyk3l7tcTaAlcOunOWttIKxO89ZHi4oaJgr5xc/exec';
 
-    // === Utils ===
-    function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
-    function cleanName(name) { return name ? name.replace(/\$[0-9a-zA-Z]{1,3}/g, '').trim() : ''; }
-    function getSavedPID() {
-      const saved = localStorage.getItem("kk_pid");
-      if (saved) document.getElementById("pidInput").value = saved;
-    }
-    window.onload = getSavedPID;
+// Hidden internal params
+const DEFAULT_CONCURRENCY = 8;
+const DEFAULT_RETRIES = 3;
+const BASE_BACKOFF_MS = 250;
+const BACKOFF_FACTOR = 1.6;
+const JITTER_MS = 120;
 
-    // Progress UI helper
-    function updateProgress(done, total) {
-      const wrap = document.getElementById('progressBarWrap');
-      const bar = document.getElementById('progressBar');
-      const status = document.getElementById('status');
-      if (!total || total === 0) {
-        wrap.style.display = 'none';
-        bar.style.width = '0%';
-        status.textContent = '';
-        return;
+/* ========= Runtime state ========= */
+let allFinishedMaps = []; // { name, rank, uid, time }
+let currentPid = '';
+let currentEdition = '0';
+window.currentPlayerName = '';
+const CACHE_PREFIX = 'kk_cache_v1'; // versioning for future changes
+
+/* ========= UI elements ========= */
+const pidInput = document.getElementById('pidInput');
+const fetchBtn = document.getElementById('fetchBtn');
+const loadBtn = document.getElementById('loadBtn');
+const exportBtn = document.getElementById('exportBtn');
+const statusEl = document.getElementById('status');
+const progressWrap = document.getElementById('progressBarWrap');
+const progressBar = document.getElementById('progressBar');
+const recordsList = document.getElementById('recordsList');
+const missingList = document.getElementById('missingList');
+const cacheToggle = document.getElementById('cacheToggle');
+const clearCacheBtn = document.getElementById('clearCacheBtn');
+document.getElementById('proxyLabel').textContent = PROXY_BASE.replace('/?url=','');
+
+/* ========= Utilities ========= */
+function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+function cleanName(name) { return name ? name.replace(/\$[0-9a-zA-Z]{1,3}/g, '').trim() : ''; }
+function saveLS(key, value) { localStorage.setItem(key, JSON.stringify(value)); }
+function loadLS(key, fallback=null) {
+  try { const v = localStorage.getItem(key); return v ? JSON.parse(v) : fallback; }
+  catch(e){ return fallback; }
+}
+
+/* ========= Local cache helpers ========= */
+// Cache key per pid+edition
+function cacheKey(pid, edition) { return `${CACHE_PREFIX}:${pid}:${edition}`; }
+
+function loadCache(pid, edition) {
+  if (!pid) return null;
+  const key = cacheKey(pid, edition);
+  return loadLS(key, null);
+}
+
+function saveCache(pid, edition, obj) {
+  const key = cacheKey(pid, edition);
+  saveLS(key, obj);
+}
+
+/* ========= Progress UI ========= */
+function updateProgress(done, total) {
+  if (!total || total === 0) {
+    progressWrap.style.display = 'none';
+    progressBar.style.width = '0%';
+    statusEl.textContent = '';
+    return;
+  }
+  const pct = Math.round((done/total) * 100);
+  progressWrap.style.display = 'block';
+  progressBar.style.width = pct + '%';
+  statusEl.textContent = `⏱ Fetching times: ${done}/${total} (${pct}%)`;
+}
+
+/* ========= Safe HTML parsing helpers ========= */
+function extractRows(html) {
+  return [...html.matchAll(/<tr[\s\S]*?<\/tr>/gi)];
+}
+function extractTdTexts(rowHtml) {
+  const cells = [];
+  const re = /<td[^>]*>([\s\S]*?)<\/td>/gi;
+  let m;
+  while ((m = re.exec(rowHtml)) !== null) {
+    const txt = m[1].replace(/<[^>]+>/g, '').trim();
+    cells.push(txt);
+  }
+  return cells;
+}
+function normalizeRawTime(raw) {
+  if (!raw) return null;
+  const s = raw.replace(/&nbsp;|\s+/g,' ').trim();
+  const mmss = s.match(/^(\d{1,2}):(\d{2}(?:\.\d{1,3})?)$/);
+  if (mmss) return `${String(parseInt(mmss[1],10))}:${mmss[2]}`;
+  const sec = s.match(/^(\d+\.\d{1,3})$/);
+  if (sec) return parseFloat(sec[1]).toString();
+  const generic = s.match(/(\d{1,2}:\d{2}\.\d{1,3})|(\d+\.\d{1,3})/);
+  if (generic) return generic[0];
+  return null;
+}
+function parseTimeFromMapHtml(html, map, pid) {
+  if (!html || typeof html !== 'string') return null;
+  const rows = extractRows(html);
+
+  // 1) pid match
+  for (const r of rows) {
+    const rowHtml = r[0];
+    if (pid && rowHtml.includes(`pid=${pid}`)) {
+      const tds = extractTdTexts(rowHtml);
+      const candidates = [2,1,0];
+      for (const idx of candidates) {
+        if (tds[idx]) {
+          const nt = normalizeRawTime(tds[idx]);
+          if (nt) return nt;
+        }
       }
-      const pct = Math.round((done / total) * 100);
-      wrap.style.display = 'block';
-      bar.style.width = pct + '%';
-      status.textContent = `⏱ Fetching times: ${done}/${total} (${pct}%)`;
+    }
+  }
+
+  // 2) player name fallback
+  if (window.currentPlayerName) {
+    const nameLower = window.currentPlayerName.toLowerCase();
+    for (const r of rows) {
+      const rowHtml = r[0];
+      if (rowHtml.toLowerCase().includes(nameLower)) {
+        const tds = extractTdTexts(rowHtml);
+        const candidates = [2,1,0];
+        for (const idx of candidates) {
+          if (tds[idx]) {
+            const nt = normalizeRawTime(tds[idx]);
+            if (nt) return nt;
+          }
+        }
+      }
+    }
+  }
+
+  // 3) generic fallback
+  const generic = html.match(/(\d{1,2}:\d{2}\.\d{1,3})|(\d+\.\d{1,3})/);
+  if (generic) return normalizeRawTime(generic[0]);
+  return null;
+}
+
+/* ========= Fetch helpers (use Worker proxy) ========= */
+async function fetchViaProxy(url) {
+  const proxyUrl = PROXY_BASE + encodeURIComponent(url);
+  const resp = await fetch(proxyUrl, { method: 'GET' });
+  if (!resp.ok) throw new Error('HTTP ' + resp.status);
+  const json = await resp.json();
+  return json.contents; // matches AllOrigins-like structure {contents: "..."}
+}
+
+/* ========= Core: fetchAll() ========= */
+async function fetchAll() {
+  const input = pidInput.value.trim();
+  statusEl.textContent = '';
+  recordsList.innerHTML = '';
+  missingList.innerHTML = '';
+  allFinishedMaps = [];
+  window.currentPlayerName = '';
+
+  // Load cache toggle + persist
+  const cacheEnabled = cacheToggle.checked;
+  localStorage.setItem('kk_cache_enabled', JSON.stringify(cacheEnabled));
+
+  // parse pid + edition
+  let pid, edition='0';
+  const pidMatch = input.match(/pid=(\d+)/);
+  const editionMatch = input.match(/edition=(\d+)/);
+  if (pidMatch) {
+    pid = pidMatch[1];
+    edition = editionMatch ? editionMatch[1] : '0';
+  } else if (/^\d+$/.test(input)) {
+    pid = input;
+    edition = prompt('Enter edition (e.g., 0 for all editions):', '0') || '0';
+  } else {
+    statusEl.textContent = '❗ Please enter PID or player URL';
+    statusEl.className = 'error';
+    return;
+  }
+
+  currentPid = pid;
+  currentEdition = edition;
+  localStorage.setItem('kk_pid', pid);
+
+  // Attempt to use cached records immediately (fast UI)
+  const cached = cacheEnabled ? loadCache(pid, edition) : null;
+  if (cached && cached.finished && cached.finished.length) {
+    // show cached immediately
+    allFinishedMaps = cached.finished.map(m => ({ ...m })); // shallow copy
+    renderRecordsList();
+    if (cached.missing) renderMissing(cached.missing);
+    statusEl.textContent = '⚡ Loaded cached records — refreshing in background...';
+  } else {
+    statusEl.textContent = '⏳ Fetching records...';
+  }
+
+  // Now fetch fresh data from the worker proxy
+  try {
+    const rawUrl = `https://kackiestkacky.com/hunting/editions/edition_history.php?pid=${pid}&edition=${edition}`;
+    const htmlOrJson = await fetchViaProxy(rawUrl); // this returns contents (may be JSON)
+    // edition_history returns JSON; our worker wraps it in {contents: text}, so htmlOrJson is JSON string
+    let data;
+    try { data = JSON.parse(htmlOrJson); } catch (e) {
+      // If upstream returned HTML or unexpected content, attempt to parse gracefully
+      console.error('Parsing edition_history JSON failed:', e);
+      throw new Error('Invalid edition_history response');
     }
 
-    // === Fetch records & missing maps (original logic restored) ===
-    async function fetchAll() {
-      const input = document.getElementById('pidInput').value.trim();
-      const status = document.getElementById('status');
-      const recordsList = document.getElementById('recordsList');
-      const missingList = document.getElementById('missingList');
-      status.textContent = '';
-      recordsList.innerHTML = '';
-      missingList.innerHTML = '';
-      allFinishedMaps = [];
-      updateProgress(0,0);
-      window.currentPlayerName = '';
-
-      let pid, edition = '0';
-      const pidMatch = input.match(/pid=(\d+)/);
-      const editionMatch = input.match(/edition=(\d+)/);
-
-      if (pidMatch) {
-        pid = pidMatch[1];
-        edition = editionMatch ? editionMatch[1] : '0';
-      } else if (/^\d+$/.test(input)) {
-        pid = input;
-        edition = prompt('Enter edition (e.g., 0 for all editions):', '0') || '0';
-      } else {
-        status.textContent = '❗ Please enter a PID or valid player URL.';
-        status.className = 'error';
-        return;
+    // Build finished maps list
+    const allFinished = [];
+    for (const entry of data) {
+      if (!window.currentPlayerName && entry.PlayerName) window.currentPlayerName = String(entry.PlayerName).trim();
+      if (entry.FinishedMaps && entry.RecordsMaps) {
+        const [mapNamesRaw, mapUIDsRaw] = entry.FinishedMaps.split(';');
+        const names = mapNamesRaw ? mapNamesRaw.split(',') : [];
+        const uids = mapUIDsRaw ? mapUIDsRaw.split(',') : [];
+        const ranks = entry.RecordsMaps ? entry.RecordsMaps.split(',') : [];
+        names.forEach((name, i) => {
+          const clean = cleanName(name);
+          const uid = (uids[i] || '').trim();
+          const rank = (ranks[i] || '?').trim();
+          if (clean && clean.length > 1) allFinished.push({ name: clean, rank, uid, time: '?' });
+        });
       }
+    }
 
-      currentPid = pid;
-      localStorage.setItem("kk_pid", pid);
+    allFinishedMaps = allFinished;
+    renderRecordsList();
 
-      try {
-        const rawUrl = `https://kackiestkacky.com/hunting/editions/edition_history.php?pid=${pid}&edition=${edition}`;
-        const proxyUrl = PROXY_BASE + encodeURIComponent(rawUrl);
-        const response = await fetch(proxyUrl);
-        const json = await response.json();
-        const data = JSON.parse(json.contents);
+    // fetch missing maps
+    try {
+      const missingUrl = `https://kackiestkacky.com/hunting/editions/missing_maps.php?pid=${pid}&edition=${edition}`;
+      const missingContents = await fetchViaProxy(missingUrl);
+      const parsed = JSON.parse(missingContents);
+      const unfinishedRaw = parsed[0]?.UnfinishedMaps || '';
+      const [namePart, uidPart] = unfinishedRaw.split(';');
+      const nameList = namePart ? namePart.split(',') : [];
+      const uidList = uidPart ? uidPart.split(',') : [];
+      const missingMaps = nameList.map((raw,i)=>({ name: cleanName(raw), uid: uidList[i]||'' })).filter(m=>m.name && m.name.length>1);
+      renderMissing(missingMaps);
+      // Save to cache
+      if (cacheEnabled) saveCache(pid, edition, { finished: allFinishedMaps, missing: missingMaps, times: (cached && cached.times) ? cached.times : {} , updatedAt: Date.now() });
+      statusEl.textContent = `✅ Found ${allFinishedMaps.length} finished map(s), ${missingMaps.length} missing.`;
+    } catch (em) {
+      console.warn('Missing maps fetch failed:', em);
+      if (cacheEnabled) saveCache(pid, edition, { finished: allFinishedMaps, missing: (cached && cached.missing) ? cached.missing : [], times:(cached && cached.times)?cached.times:{}, updatedAt: Date.now() });
+      statusEl.textContent = `✅ Found ${allFinishedMaps.length} finished map(s). ⚠️ Missing maps not loaded.`;
+    }
 
-        const allFinished = [];
+    // After fetching records, automatically load times
+    // But only if user didn't just load from cache entirely.
+    await loadTimes({ useCacheIfPresent: true });
+  } catch (err) {
+    console.error('Record fetch failed:', err);
+    statusEl.textContent = '❌ Failed to fetch map records.';
+    statusEl.className = 'error';
+  }
+}
 
-        // data is array of edition entries
-        data.forEach(entry => {
-          // store player name for name-based matching fallback
-          if (!window.currentPlayerName && entry.PlayerName) {
-            window.currentPlayerName = String(entry.PlayerName).trim();
-          }
-          if (entry.FinishedMaps && entry.RecordsMaps) {
-            const [mapNamesRaw, mapUIDsRaw] = entry.FinishedMaps.split(';');
-            const names = mapNamesRaw ? mapNamesRaw.split(',') : [];
-            const uids = mapUIDsRaw ? mapUIDsRaw.split(',') : [];
-            const ranks = entry.RecordsMaps ? entry.RecordsMaps.split(',') : [];
-            names.forEach((name, i) => {
-              const clean = cleanName(name);
-              const uid = uids[i] || '';
-              const rank = ranks[i] || '?';
-              if (clean && clean.length > 1) {
-                allFinished.push({ name: clean, rank, uid, time: '?' });
-              }
-            });
-          }
-        });
+/* ========= Render helpers ========= */
+function renderRecordsList() {
+  recordsList.innerHTML = '';
+  allFinishedMaps.forEach((m, idx) => {
+    const div = document.createElement('div');
+    div.className = 'record';
+    div.dataset.idx = String(idx);
+    const left = document.createElement('div'); left.className = 'left';
+    const link = m.uid ? `<a href="https://kackiestkacky.com/hunting/editions/maps.php?uid=${m.uid}" target="_blank" rel="noopener">${m.name}</a>` : m.name;
+    left.innerHTML = link + ` <span class="rank">#${m.rank}</span>`;
+    const right = document.createElement('div');
+    right.innerHTML = `<span class="time">${m.time && m.time !== '?' ? `⏱ ${m.time}` : '[load]'}</span>`;
+    div.appendChild(left); div.appendChild(right);
+    recordsList.appendChild(div);
+  });
+}
+function renderMissing(list) {
+  missingList.innerHTML = '';
+  if (!list || list.length === 0) {
+    missingList.innerHTML = '<div class="muted">🎉 No missing maps!</div>';
+    return;
+  }
+  list.forEach(m => {
+    const div = document.createElement('div');
+    div.className = 'missing';
+    const link = m.uid ? `<a href="https://kackiestkacky.com/hunting/editions/maps.php?uid=${m.uid}" target="_blank" rel="noopener">${m.name}</a>` : m.name;
+    div.innerHTML = link;
+    missingList.appendChild(div);
+  });
+}
 
-        allFinishedMaps = allFinished;
-        const finishedCount = allFinished.length;
+/* ========= loadTimes() with hidden concurrency & retry =========
+   Options:
+     - useCacheIfPresent: boolean -> if true and times exist in cache, don't re-fetch them
+     - forceRefresh: boolean -> ignore cache and re-fetch everything
+*/
+async function loadTimes(options = { useCacheIfPresent: true, forceRefresh: false }) {
+  const concurrency = DEFAULT_CONCURRENCY;
+  const maxRetries = DEFAULT_RETRIES;
+  const cacheEnabled = cacheToggle.checked;
+  const pid = currentPid;
+  const edition = currentEdition;
 
-        // render finished list with stable data-idx
-        allFinishedMaps.forEach((m, idx) => {
-          const div = document.createElement('div');
-          div.className = 'record';
-          div.dataset.idx = String(idx);
-          const left = document.createElement('div'); left.className = 'left';
-          const link = m.uid
-            ? `<a href="https://kackiestkacky.com/hunting/editions/maps.php?uid=${m.uid}" target="_blank" rel="noopener">${m.name}</a>`
-            : m.name;
-          left.innerHTML = link + ` <span class="rank">#${m.rank}</span>`;
-          const right = document.createElement('div');
-          right.innerHTML = `<span class="time">[load]</span>`;
-          div.appendChild(left);
-          div.appendChild(right);
-          recordsList.appendChild(div);
-        });
+  if (!pid || allFinishedMaps.length === 0) {
+    alert('You must fetch maps first.');
+    return;
+  }
 
-        // fetch missing maps
+  // Load cached times object (per pid|edition)
+  const cached = cacheEnabled ? loadCache(pid, edition) : null;
+  const cachedTimes = (cached && cached.times) ? cached.times : {};
+
+  // Build queue of indices that should be fetched
+  const queue = [];
+  for (let i=0;i<allFinishedMaps.length;i++) {
+    const map = allFinishedMaps[i];
+    const row = document.querySelector(`#recordsList [data-idx="${i}"]`);
+    // If no uid, mark as -
+    if (!map.uid) {
+      if (row) row.querySelector('.time').textContent = '⏱ -';
+      map.time = '-';
+      continue;
+    }
+    // If useCacheIfPresent and we have cached time and not forcing, use it
+    if (!options.forceRefresh && options.useCacheIfPresent && cachedTimes[map.uid]) {
+      map.time = cachedTimes[map.uid];
+      if (row) row.querySelector('.time').textContent = `⏱ ${map.time}`;
+      continue;
+    }
+    // Otherwise queue for fetching
+    queue.push(i);
+  }
+
+  let completed = 0;
+  const totalToFetch = queue.length;
+  updateProgress(0, allFinishedMaps.length);
+  statusEl.textContent = `⏱ Starting time fetch — ${totalToFetch} to fetch (hidden concurrency ${concurrency})`;
+
+  // worker function
+  async function workerFn(workerId) {
+    while (true) {
+      const idx = queue.shift();
+      if (typeof idx === 'undefined') return;
+      const map = allFinishedMaps[idx];
+      const row = document.querySelector(`#recordsList [data-idx="${idx}"]`);
+      if (row) row.querySelector('.time').textContent = '⏳ fetching';
+
+      let attempt = 0;
+      let success = false;
+      let lastError = null;
+
+      while (attempt < maxRetries && !success) {
+        attempt++;
+        if (row) row.querySelector('.time').textContent = `⏳ retrying (${attempt}/${maxRetries})`;
         try {
-          const missingUrl = PROXY_BASE + encodeURIComponent(`https://kackiestkacky.com/hunting/editions/missing_maps.php?pid=${pid}&edition=${edition}`);
-          const missingResp = await fetch(missingUrl);
-          const missingJson = await missingResp.json();
-          const parsed = JSON.parse(missingJson.contents);
+          // polite stagger
+          const stagger = Math.round(80 + Math.random() * 140);
+          await sleep(stagger);
 
-          const unfinishedRaw = parsed[0]?.UnfinishedMaps || '';
-          const [namePart, uidPart] = unfinishedRaw.split(';');
-          const nameList = namePart ? namePart.split(',') : [];
-          const uidList = uidPart ? uidPart.split(',') : [];
+          const url = `https://kackiestkacky.com/hunting/editions/maps.php?uid=${encodeURIComponent(map.uid)}&raw=1`;
+          const html = await fetchViaProxy(url);
 
-          const missingMaps = nameList
-            .map((raw, i) => ({ name: cleanName(raw), uid: uidList[i] || '' }))
-            .filter(map => map.name && map.name.length > 1);
-
-          if (missingMaps.length === 0) {
-            const none = document.createElement('div'); none.textContent = '🎉 No missing maps!'; missingList.appendChild(none);
+          const parsed = parseTimeFromMapHtml(html, map, pid);
+          if (parsed) {
+            map.time = parsed;
+            if (row) row.querySelector('.time').textContent = `⏱ ${parsed}`;
+            success = true;
+            // save to cachedTimes if enabled
+            if (cacheEnabled) cachedTimes[map.uid] = parsed;
+            break;
           } else {
-            missingMaps.forEach(({ name, uid }) => {
-              const div = document.createElement('div'); div.className = 'missing';
-              const link = uid ? `<a href="https://kackiestkacky.com/hunting/editions/maps.php?uid=${uid}" target="_blank" rel="noopener">${name}</a>` : name;
-              div.innerHTML = link;
-              missingList.appendChild(div);
-            });
+            throw new Error('parse-failed');
           }
-
-          status.textContent = `✅ Found ${finishedCount} finished map(s), ${missingMaps.length} missing.`;
-        } catch (eMissing) {
-          console.warn('Missing maps fetch failed:', eMissing);
-          status.textContent = `✅ Found ${finishedCount} finished map(s). ⚠️ Missing maps could not be loaded.`;
-        }
-
-      } catch (e) {
-        console.error('Record fetch failed:', e);
-        status.textContent = '❌ Failed to fetch map records.';
-        status.className = 'error';
-      }
-    }
-
-    // === Safe parser helpers ===
-    // Extract rows: return array of [match0, ...] objects from matchAll
-    function extractRows(html) {
-      return [...html.matchAll(/<tr[\s\S]*?<\/tr>/gi)];
-    }
-
-    // Return true if rowHtml contains pid=... (simple include)
-    function rowContainsPid(rowHtml, pid) {
-      if (!pid) return false;
-      return rowHtml.includes(`pid=${pid}`);
-    }
-
-    // Extract <td> cell texts in order
-    function extractTdTexts(rowHtml) {
-      const cells = [];
-      const re = /<td[^>]*>([\s\S]*?)<\/td>/gi;
-      let m;
-      while ((m = re.exec(rowHtml)) !== null) {
-        // strip tags inside td
-        const txt = m[1].replace(/<[^>]+>/g, '').trim();
-        cells.push(txt);
-      }
-      return cells;
-    }
-
-    // Parse time-like strings to normalized format
-    function normalizeRawTime(raw) {
-      if (!raw) return null;
-      const s = raw.replace(/&nbsp;|\s+/g, ' ').trim();
-      // mm:ss.mmm
-      const mmss = s.match(/^(\d{1,2}):(\d{2}(?:\.\d{1,3})?)$/);
-      if (mmss) {
-        const minutes = String(parseInt(mmss[1], 10)); // remove leading zeros
-        return `${minutes}:${mmss[2]}`;
-      }
-      // seconds with decimal e.g., 23.456
-      const sec = s.match(/^(\d+\.\d{1,3})$/);
-      if (sec) return parseFloat(sec[1]).toString();
-      // fallback search anywhere
-      const generic = s.match(/(\d{1,2}:\d{2}\.\d{1,3})|(\d+\.\d{1,3})/);
-      if (generic) return generic[0];
-      return null;
-    }
-
-    // Try multiple strategies: pid link, player name, fallback to generic
-    function parseTimeFromMapHtml(html, map, pid) {
-      if (!html || typeof html !== 'string') return null;
-
-      const rows = extractRows(html);
-
-      // 1) prefer pid-based matching (fast)
-      for (const r of rows) {
-        const rowHtml = r[0];
-        if (rowContainsPid(rowHtml, pid)) {
-          const tdTexts = extractTdTexts(rowHtml);
-          // preferred indices - try 2 then 1 then 0 like original
-          const candidates = [2, 1, 0];
-          for (const idx of candidates) {
-            if (tdTexts[idx]) {
-              const nt = normalizeRawTime(tdTexts[idx]);
-              if (nt) return nt;
-            }
+        } catch (err) {
+          lastError = err;
+          console.warn(`Attempt ${attempt} failed for uid=${map.uid}:`, err);
+          if (attempt < maxRetries) {
+            const backoff = Math.round(BASE_BACKOFF_MS * Math.pow(BACKOFF_FACTOR, attempt-1) + (Math.random() * JITTER_MS));
+            await sleep(backoff);
           }
         }
-      }
+      } // attempts
 
-      // 2) player name fallback (if we have it)
-      if (window.currentPlayerName) {
-        const nameLower = window.currentPlayerName.toLowerCase();
-        for (const r of rows) {
-          const rowHtml = r[0];
-          if (rowHtml.toLowerCase().includes(nameLower)) {
-            const tdTexts = extractTdTexts(rowHtml);
-            const candidates = [2, 1, 0];
-            for (const idx of candidates) {
-              if (tdTexts[idx]) {
-                const nt = normalizeRawTime(tdTexts[idx]);
-                if (nt) return nt;
-              }
-            }
-          }
+      if (!success) {
+        if (row) {
+          row.querySelector('.time').textContent = `⏱ (failed)`;
+          row.querySelector('.time').classList.add('failed');
         }
+        console.error(`All ${maxRetries} attempts failed for uid=${map.uid}. Last error:`, lastError);
+      } else {
+        if (row) row.querySelector('.time').classList.remove('failed');
       }
 
-      // 3) generic fallback: search whole html for mm:ss.mmm or ss.mmm nearby
-      const generic = html.match(/(\d{1,2}:\d{2}\.\d{1,3})|(\d+\.\d{1,3})/);
-      if (generic) return normalizeRawTime(generic[0]);
-
-      return null;
+      // update overall progress (count completed maps, not queue length)
+      completed++;
+      updateProgress(completed + (allFinishedMaps.length - totalToFetch), allFinishedMaps.length);
     }
+  }
 
-    // === Throttled loader with retries + backoff (safe) ===
-    async function loadTimes() {
-      const status = document.getElementById('status');
-      const concurrency = parseInt(document.getElementById('concurrency').value, 10) || 5;
-      const maxRetries = parseInt(document.getElementById('retries').value, 10) || 3;
-      const total = allFinishedMaps.length;
+  // Start worker pool
+  const poolSize = Math.min(concurrency, queue.length || concurrency);
+  const workers = [];
+  for (let w=0; w<poolSize; w++) workers.push(workerFn(w+1));
+  await Promise.all(workers);
 
-      if (total === 0) {
-        alert("You must fetch maps first.");
-        return;
-      }
+  // Save updated cache
+  if (cacheEnabled) {
+    const toSave = { finished: allFinishedMaps, missing: loadCache(pid,edition)?.missing || [], times: cachedTimes, updatedAt: Date.now() };
+    saveCache(pid, edition, toSave);
+  }
 
-      // Build queue of indices that have a uid
-      const queue = [];
-      for (let i = 0; i < allFinishedMaps.length; i++) {
-        const map = allFinishedMaps[i];
-        const row = document.querySelector(`#recordsList [data-idx="${i}"]`);
-        if (!map.uid) {
-          if (row) row.querySelector('.time').textContent = '⏱ -';
-        } else {
-          queue.push(i);
-        }
-      }
+  const statusMsg = `✅ Times updated. (${allFinishedMaps.length} maps)`;
+  statusEl.textContent = statusMsg;
+  updateProgress(allFinishedMaps.length, allFinishedMaps.length);
+  console.log('loadTimes finished:', statusMsg);
+}
 
-      let completed = 0;
-      let errorCount = 0;
-      updateProgress(0, total);
-      status.textContent = `⏱ Starting time fetch — concurrency ${concurrency}, retries ${maxRetries}`;
+/* ========= Export to Google Sheets =========
+   Format required by your webhook:
+     { map_records: "Name\tTime\tRank\nName2\tTime\tRank\n...", sheet_id: "..." }
+   We exclude maps with missing times (time === '?' or '(failed)' or '-' or undefined)
+*/
+async function exportToSheets() {
+  if (!allFinishedMaps || allFinishedMaps.length === 0) {
+    alert('No maps to export. Fetch maps first.');
+    return;
+  }
 
-      // worker function
-      async function worker(workerId) {
-        while (true) {
-          const idx = queue.shift();
-          if (typeof idx === 'undefined') return;
-          const map = allFinishedMaps[idx];
-          const row = document.querySelector(`#recordsList [data-idx="${idx}"]`);
-          if (row) row.querySelector('.time').textContent = '⏳ fetching';
+  // build map_records lines
+  const lines = [];
+  for (const m of allFinishedMaps) {
+    const t = m.time;
+    if (!t || t === '?' || t === '-' || String(t).includes('(failed)')) continue; // A2: exclude missing
+    // Use exact name, time, rank
+    lines.push(`${m.name}\t${m.time}\t${m.rank}`);
+  }
 
-          let attempt = 0;
-          let success = false;
-          let lastError = null;
+  if (lines.length === 0) {
+    alert('No maps with valid times to export.');
+    return;
+  }
 
-          while (attempt < maxRetries && !success) {
-            attempt++;
-            if (row) row.querySelector('.time').textContent = `⏳ retrying (${attempt}/${maxRetries})`;
-            console.log(`Worker ${workerId} attempt ${attempt} for uid=${map.uid} (idx ${idx})`);
-            try {
-              // small polite stagger before each request
-              const stagger = Math.round(60 + Math.random() * 120); // 60-180 ms
-              await sleep(stagger);
+  let sheetId = loadLS('kk_sheet_id', null);
+  if (!sheetId) {
+    sheetId = prompt('Enter Google Sheet ID (or "unknown"):', 'unknown');
+    if (!sheetId) return;
+    saveLS('kk_sheet_id', sheetId);
+  }
 
-              const url = `https://kackiestkacky.com/hunting/editions/maps.php?uid=${encodeURIComponent(map.uid)}&raw=1`;
-              const proxyUrl = PROXY_BASE + encodeURIComponent(url);
+  statusEl.textContent = '📤 Exporting to Google Sheets...';
 
-              const resp = await fetch(proxyUrl, { method: 'GET' });
-              if (!resp.ok) {
-                throw new Error('HTTP ' + resp.status);
-              }
-              const json = await resp.json();
-              const html = String(json.contents || '');
+  try {
+    const payload = { map_records: lines.join('\n'), sheet_id: sheetId };
+    const res = await fetch(SHEET_GAS, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    const txt = await res.text();
+    statusEl.textContent = `📤 Upload status: ${txt}`;
+  } catch (err) {
+    console.error('Export failed:', err);
+    statusEl.textContent = '❌ Failed to export to Google Sheets.';
+  }
+}
 
-              const parsedTime = parseTimeFromMapHtml(html, map, currentPid);
-              if (parsedTime) {
-                map.time = parsedTime;
-                if (row) row.querySelector('.time').textContent = `⏱ ${parsedTime}`;
-                success = true;
-                break;
-              } else {
-                // treat as parse failure
-                throw new Error('parse-failed');
-              }
+/* ========= Helpers: cache toggle, clear, UI wiring ========= */
+function initUI() {
+  // load saved PID + cache setting + sheet id
+  const savedPid = loadLS('kk_pid', null);
+  if (savedPid) pidInput.value = savedPid;
+  const savedCache = loadLS('kk_cache_enabled', null);
+  cacheToggle.checked = (savedCache === null ? true : !!savedCache); // on by default
+  const savedSheet = loadLS('kk_sheet_id', null);
+  if (savedSheet) saveLS('kk_sheet_id', savedSheet);
 
-            } catch (err) {
-              lastError = err;
-              console.warn(`Attempt ${attempt} failed for uid=${map.uid}:`, err);
-              if (attempt < maxRetries) {
-                const backoff = Math.round(BASE_BACKOFF_MS * Math.pow(BACKOFF_FACTOR, attempt - 1) + (Math.random() * JITTER_MS));
-                console.log(`Waiting ${backoff}ms before retrying uid=${map.uid}`);
-                await sleep(backoff);
-              }
-            }
-          }
-
-          if (!success) {
-            errorCount++;
-            if (row) row.querySelector('.time').textContent = `⏱ (failed)`;
-            console.error(`All ${maxRetries} attempts failed for uid=${map.uid}. Last error:`, lastError);
-          }
-
-          completed++;
-          updateProgress(completed, total);
-        }
-      }
-
-      // spawn worker pool (size = min(concurrency, queue.length))
-      const poolSize = Math.min(concurrency, queue.length || concurrency);
-      const workers = [];
-      for (let w = 0; w < poolSize; w++) workers.push(worker(w + 1));
-      await Promise.all(workers);
-
-      const statusMsg = `✅ Times updated. Completed: ${completed}/${total}` + (errorCount ? ` — failed: ${errorCount}` : '');
-      document.getElementById('status').textContent = statusMsg;
-      updateProgress(total, total);
-      console.log('loadTimes finished:', statusMsg);
+  // Bind events
+  fetchBtn.addEventListener('click', fetchAll);
+  loadBtn.addEventListener('click', () => loadTimes({ useCacheIfPresent: false, forceRefresh: true }));
+  exportBtn.addEventListener('click', exportToSheets);
+  cacheToggle.addEventListener('change', () => {
+    localStorage.setItem('kk_cache_enabled', JSON.stringify(cacheToggle.checked));
+  });
+  clearCacheBtn.addEventListener('click', () => {
+    const pid = pidInput.value.trim();
+    if (!pid) {
+      alert('Enter PID first to clear its cache.');
+      return;
     }
+    const editionMatch = pid.match(/edition=(\d+)/);
+    const edition = editionMatch ? editionMatch[1] : '0';
+    localStorage.removeItem(cacheKey(pid, edition));
+    statusEl.textContent = '🧹 Cache cleared for current PID/edition.';
+  });
 
-    // === Export to Google Sheets (unchanged) ===
-    async function exportToSheets() {
-      const status = document.getElementById('status');
-      if (allFinishedMaps.length === 0) {
-        alert("You must load maps first.");
-        return;
-      }
+  // allow Enter to fetch
+  pidInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') fetchAll(); });
+}
 
-      let sheetId = localStorage.getItem('kk_sheet_id');
-      if (!sheetId) {
-        sheetId = prompt("Enter your Google Sheet ID:");
-        if (!sheetId) return;
-        localStorage.setItem("kk_sheet_id", sheetId);
-      }
-
-      const textBlock = allFinishedMaps.map(m =>
-        `${m.name}\t${m.time || '?'}\t${m.rank}`
-      ).join("\n");
-
-      const payload = {
-        map_records: textBlock,
-        sheet_id: sheetId
-      };
-
-      try {
-        const res = await fetch(GAS_URL, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(payload)
-        });
-        const txt = await res.text();
-        status.textContent = `📤 Upload status: ${txt}`;
-      } catch (err) {
-        console.error(err);
-        status.textContent = '❌ Failed to upload to Google Sheets.';
-      }
-    }
-
-    // === Wiring ===
-    document.getElementById('fetchBtn').addEventListener('click', fetchAll);
-    document.getElementById('loadBtn').addEventListener('click', loadTimes);
-    document.getElementById('exportBtn').addEventListener('click', exportToSheets);
-    document.getElementById('pidInput').addEventListener('keydown', (e) => { if (e.key === 'Enter') fetchAll(); });
-  </script>
+initUI();
+</script>
 </body>
 </html>
