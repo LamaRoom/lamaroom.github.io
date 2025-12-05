@@ -482,12 +482,11 @@ async function exportToSheets() {
     return;
   }
 
-  // build map_records lines
+  // build map_records lines (excluding missing times)
   const lines = [];
   for (const m of allFinishedMaps) {
     const t = m.time;
-    if (!t || t === '?' || t === '-' || String(t).includes('(failed)')) continue; // A2: exclude missing
-    // Use exact name, time, rank
+    if (!t || t === '?' || t === '-' || String(t).includes('(failed)')) continue;
     lines.push(`${m.name}\t${m.time}\t${m.rank}`);
   }
 
@@ -498,7 +497,7 @@ async function exportToSheets() {
 
   let sheetId = loadLS('kk_sheet_id', null);
   if (!sheetId) {
-    sheetId = prompt('Enter Google Sheet ID (or "unknown"):', 'unknown');
+    sheetId = prompt('Enter Google Sheet ID:', 'unknown');
     if (!sheetId) return;
     saveLS('kk_sheet_id', sheetId);
   }
@@ -506,17 +505,27 @@ async function exportToSheets() {
   statusEl.textContent = '📤 Exporting to Google Sheets...';
 
   try {
-    const payload = { map_records: lines.join('\n'), sheet_id: sheetId };
-    const res = await fetch(SHEET_GAS, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+    const payload = {
+      map_records: lines.join('\n'),
+      sheet_id: sheetId
+    };
+
+    const res = await fetch("https://kacky-fetcher.lamaroom.workers.dev/export", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload)
     });
-    const txt = await res.text();
-    statusEl.textContent = `📤 Upload status: ${txt}`;
+
+    const json = await res.json();
+
+    if (json.ok) {
+      statusEl.textContent = `📤 Upload successful: ${json.result}`;
+    } else {
+      statusEl.textContent = `⚠️ Upload error (status ${json.status}): ${json.result}`;
+    }
   } catch (err) {
     console.error('Export failed:', err);
-    statusEl.textContent = '❌ Failed to export to Google Sheets.';
+    statusEl.textContent = '❌ Failed to export (Worker connection error).';
   }
 }
 
