@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>KK Dashboard Viewer (Fixed Fast Mode)</title>
+  <title>KK Dashboard Viewer</title>
   <style>
     body { font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial; padding: 2em; max-width: 900px; margin: auto; color:#222; }
     input, button, select { padding: 0.45em 0.6em; margin: 0.4em 0.4em 0.4em 0; font-size: 0.95rem; }
@@ -21,13 +21,13 @@
   </style>
 </head>
 <body>
-  <h1>KK Dashboard Viewer — Fixed Fast Mode</h1>
+  <h1>KK Dashboard Viewer</h1>
 
   <div class="btn-row">
     <input id="pidInput" type="text" placeholder="Enter PID or full player URL" style="flex:1; min-width:260px" />
     <button id="fetchBtn">Fetch Records & Missing Maps</button>
-    <button id="loadBtn">Load Times (fast)</button>
-    <button id="exportBtn">Export to Google Sheets</button>
+    <button id="loadBtn">Load Times</button>
+    <button id="exportBtn">Export to Google Sheets (soon)</button>
 
     <label class="small">Concurrency:
       <select id="concurrency" title="How many parallel requests to run">
